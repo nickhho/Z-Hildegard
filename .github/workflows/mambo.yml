@@ -164,23 +164,13 @@ jobs:
           df -ih
 
       # ============================================================
-      # FORCE CLEAN
+      # NOTE: langkah "Force Clean Old GKI" yang lama dihapus.
+      # Step itu jalan SEBELUM cache di-restore, jadi folder `gki`
+      # memang belum ada di runner fresh -> tidak pernah punya efek.
+      # Efek "force clean" sudah tercapai lewat kondisi `if` di step
+      # Cache Kernel Source / Cache Clang Toolchain di bawah, yang
+      # otomatis skip restore cache kalau force_clean=true.
       # ============================================================
-
-      - name: Force Clean Old GKI
-        if: ${{ inputs.force_clean }}
-        run: |
-          echo "========================================"
-          echo "🧹 FORCE CLEAN ENABLED"
-          echo "========================================"
-
-          if [ -d "gki" ]; then
-            rm -rf gki
-          fi
-
-          echo "Old GKI source removed."
-
-          df -h
 
       # ============================================================
       # CACHE KERNEL SOURCE
@@ -360,32 +350,14 @@ jobs:
           rm -rf KernelSU
 
       # ============================================================
-      # INFINIX GT 20 PRO CAMERA FIX
-      # ============================================================
-
-      - name: Apply Infinix GT 20 Pro Camera Fix
-        working-directory: gki/common
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "📷 Applying camera fix"
-          echo "========================================"
-
-          curl -L \
-            "https://github.com/ramabondanp/android_kernel_common-5.10/commit/4fe04b60009e.patch" \
-            -o infinix_cam.patch
-
-          if patch -p1 < infinix_cam.patch; then
-            echo "✅ Camera patch applied."
-          else
-            echo "⚠️ Patch kamera mungkin sudah tertanam."
-          fi
-
-          rm -f infinix_cam.patch
-
-      # ============================================================
       # MAMBOSU
+      # ============================================================
+      # PERHATIAN (keamanan): script setup ini di-curl lalu langsung
+      # di-pipe ke bash dari repo pihak ketiga (VortexSU), memakai
+      # branch "main" yang bisa berubah isinya kapan saja tanpa kamu
+      # sadar (supply-chain risk). Idealnya pin ke commit hash
+      # tertentu, mis. .../refs/heads/main -> /<commit_sha>/kernel/setup.sh
+      # dan/atau verifikasi checksum sebelum eksekusi.
       # ============================================================
 
       - name: Setup MamboSU (RapliVx)
@@ -406,17 +378,33 @@ jobs:
             | bash -s main
 
       # ============================================================
-      # CLEAN BUILD CONFIG
+      # CLEAN BUILD CONFIG (diperbaiki: tidak lagi hardcode "hapus baris 2"
+      # tanpa validasi — sekarang log dulu isinya dan cek jumlah baris
+      # supaya tidak diam-diam merusak file kalau struktur upstream berubah)
       # ============================================================
 
       - name: Clean Build Config
+        working-directory: gki/common
         run: |
           set -e
 
-          sed -i '2d' gki/common/build.config.gki
+          CONFIG_FILE="build.config.gki"
+
+          echo "Baris ke-2 sebelum dihapus:"
+          sed -n '2p' "$CONFIG_FILE" || true
+
+          LINE_COUNT=$(wc -l < "$CONFIG_FILE")
+          if [ "$LINE_COUNT" -ge 2 ]; then
+            sed -i '2d' "$CONFIG_FILE"
+            echo "✅ Baris ke-2 dihapus."
+          else
+            echo "⚠️ $CONFIG_FILE cuma punya $LINE_COUNT baris, skip penghapusan (cek manual!)."
+          fi
 
       # ============================================================
-      # CRITICAL FIXES
+      # CRITICAL FIXES (diperbaiki: penghapusan fungsi/pemanggilan drm
+      # sekarang divalidasi dulu supaya sed range tidak "kabur" sampai
+      # akhir file kalau pattern penutup tidak ditemukan)
       # ============================================================
 
       - name: Apply Critical Fixes
@@ -442,13 +430,34 @@ jobs:
             '/pr_warn.*disagrees about version of symbol.*/,+1 s/.*/return 1;/' \
             kernel/module.c
 
-          sed -i \
-            '/^static int drm_atomic_check_valid_clones/,/^}/d' \
-            drivers/gpu/drm/drm_atomic_helper.c
+          DRM_FILE="drivers/gpu/drm/drm_atomic_helper.c"
 
-          sed -i \
-            '/ret = drm_atomic_check_valid_clones/,/return ret;/d' \
-            drivers/gpu/drm/drm_atomic_helper.c
+          if [ -f "$DRM_FILE" ]; then
+
+            if grep -q '^static int drm_atomic_check_valid_clones' "$DRM_FILE"; then
+              sed -i '/^static int drm_atomic_check_valid_clones/,/^}/d' "$DRM_FILE"
+              echo "✅ Fungsi drm_atomic_check_valid_clones dihapus."
+            else
+              echo "⚠️ Fungsi drm_atomic_check_valid_clones tidak ditemukan, skip."
+            fi
+
+            if grep -q 'ret = drm_atomic_check_valid_clones' "$DRM_FILE"; then
+              CALL_LINE=$(grep -n 'ret = drm_atomic_check_valid_clones' "$DRM_FILE" | head -1 | cut -d: -f1)
+              END_LINE=$(awk -v start="$CALL_LINE" 'NR>=start && NR<=start+10 && /return ret;/{print NR; exit}' "$DRM_FILE")
+
+              if [ -n "$END_LINE" ]; then
+                sed -i "${CALL_LINE},${END_LINE}d" "$DRM_FILE"
+                echo "✅ Pemanggilan drm_atomic_check_valid_clones dihapus (baris $CALL_LINE-$END_LINE)."
+              else
+                echo "⚠️ 'return ret;' tidak ditemukan dalam 10 baris setelah pemanggilan — skip, supaya tidak menghapus sampai akhir file."
+              fi
+            else
+              echo "⚠️ Pemanggilan drm_atomic_check_valid_clones tidak ditemukan, skip."
+            fi
+
+          else
+            echo "⚠️ $DRM_FILE tidak ada, skip critical fix untuk file ini."
+          fi
 
       # ============================================================
       # KERNEL CONFIGURATION
@@ -545,12 +554,28 @@ jobs:
       # ============================================================
       # PACKAGE & RELEASE
       # ============================================================
+      # PERBAIKAN PENTING: sebelumnya pakai ${{ github.token }} (GITHUB_TOKEN
+      # bawaan), yang HANYA punya akses ke repo tempat workflow ini berjalan.
+      # Karena release dibuat di repo LAIN (zixine/Kernel-GKI-12-5.10-release),
+      # `gh release create/upload` akan gagal (403/404) kalau bukan repo yang
+      # sama dengan repo workflow ini.
+      #
+      # FIX: buat Personal Access Token (classic atau fine-grained) yang
+      # punya akses "repo" / "contents: write" ke repo target, simpan sebagai
+      # secret repo ini dengan nama RELEASE_TOKEN (Settings > Secrets and
+      # variables > Actions > New repository secret), lalu dipakai di bawah.
+      # ============================================================
 
       - name: Packaging & Release
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
         run: |
           set -e
+
+          if [ -z "$GH_TOKEN" ]; then
+            echo "❌ Secret RELEASE_TOKEN belum di-set. Tambahkan di Settings > Secrets and variables > Actions."
+            exit 1
+          fi
 
           echo "========================================"
           echo "📦 PACKAGING KERNEL"
@@ -558,7 +583,6 @@ jobs:
 
           BASE_VER=$(make -s kernelversion -C gki/common | tr -d '\n\r')
           FULL_VER=$(make -s kernelversion -C gki/common | tr -d '\n\r')
-
           DATE=$(date +"%Y%m%d")
 
           KNAME="${{ github.event.inputs.kernel_name }}"
@@ -569,10 +593,6 @@ jobs:
           echo "Kernel : $FULL_VER"
           echo "Package: $ZIP_NAME"
 
-          # ========================================================
-          # ANYKERNEL
-          # ========================================================
-
           AK3_REPO="https://github.com/zixine/anykernel"
 
           git clone \
@@ -581,10 +601,6 @@ jobs:
             "$AK3_REPO" \
             -b main \
             anykernel
-
-          # ========================================================
-          # FIND IMAGE
-          # ========================================================
 
           IMG=$(find gki/out \
             -name "Image" \
@@ -596,14 +612,9 @@ jobs:
             exit 1
           fi
 
-          echo "Image found:"
-          echo "$IMG"
+          echo "Image found: $IMG"
 
           cp "$IMG" anykernel/
-
-          # ========================================================
-          # ANYKERNEL VERSION
-          # ========================================================
 
           sed -i \
             "s|kernel.string=.*|kernel.string=${FULL_VER} by Zixine|g" \
@@ -616,10 +627,6 @@ jobs:
             tools/magiskboot \
             tools/ak3-core.sh \
             META-INF/com/google/android/update-binary
-
-          # ========================================================
-          # CREATE ZIP
-          # ========================================================
 
           zip -r9 \
             "../$ZIP_NAME" \
@@ -636,38 +643,22 @@ jobs:
 
           ls -lh "$ZIP_NAME"
 
-          # ========================================================
-          # GITHUB RELEASE
-          # ========================================================
-
           TARGET_REPO="zixine/Kernel-GKI-12-5.10-release"
-
           RELEASE_TAG="${KNAME}-${DATE}-Mambo"
-
           RELEASE_STATUS="${{ github.event.inputs.release_status }}"
 
           echo "Release tag: $RELEASE_TAG"
           echo "Release status: $RELEASE_STATUS"
 
-          # ========================================================
-          # BETA / RELEASE
-          # ========================================================
-
-          if [ "$RELEASE_STATUS" = "BETA" ]; then
-            PRERELEASE="--prerelease"
-          else
-            PRERELEASE="--latest"
-          fi
-
-          # ========================================================
-          # CREATE / UPDATE RELEASE
-          # ========================================================
+          echo "========================================"
+          echo "🚀 GITHUB RELEASE"
+          echo "========================================"
 
           if gh release view "$RELEASE_TAG" \
             --repo "$TARGET_REPO" \
-            > /dev/null 2>&1; then
+            >/dev/null 2>&1; then
 
-            echo "♻️ Existing release found."
+            echo "♻️ Release already exists."
 
             gh release upload \
               "$RELEASE_TAG" \
@@ -677,7 +668,7 @@ jobs:
 
           else
 
-            echo "🆕 Creating new release."
+            echo "🆕 Creating release..."
 
             if [ "$RELEASE_STATUS" = "BETA" ]; then
 
