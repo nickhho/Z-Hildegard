@@ -1,4 +1,4 @@
-name: zixine Kernel Builder (MamboSU RapliVx - V13 Optimized)
+name: zixine Kernel Builder (MamboSU RapliVx - V12 Fixed)
 
 on:
   workflow_dispatch:
@@ -8,7 +8,6 @@ on:
         required: true
         default: 'Zixine'
         type: string
-
       release_status:
         description: 'Status Rilis'
         required: true
@@ -17,7 +16,6 @@ on:
         options:
           - 'RELEASE'
           - 'BETA'
-
       force_clean:
         description: 'Paksa Download Ulang (Reset Cache)'
         required: false
@@ -29,19 +27,14 @@ permissions:
 
 jobs:
   mambo-build:
-    name: Build MamboSU (Optimized + Cached)
+    name: Build MamboSU (Cached)
     runs-on: ubuntu-22.04
 
     steps:
-
-      # ============================================================
-      # ENVIRONMENT PREPARATION
-      # ============================================================
-
       - name: Environment Preparation
         uses: easimon/maximize-build-space@master
         with:
-          root-reserve-mb: 4096
+          root-reserve-mb: 8192
           swap-size-mb: 10240
           remove-dotnet: 'true'
           remove-android: 'true'
@@ -49,636 +42,177 @@ jobs:
           remove-codeql: 'true'
           remove-docker-images: 'true'
 
-      # ============================================================
-      # CHECKOUT
-      # ============================================================
-
       - name: Fetch Workflow Source
         uses: actions/checkout@v4
-
-      # ============================================================
-      # GIT IDENTITY
-      # ============================================================
 
       - name: Initialize Git Identity
         run: |
           git config --global user.name "zixine-bot"
           git config --global user.email "bot@zixine.org"
 
-      # ============================================================
-      # FREE DISK SPACE
-      # ============================================================
-
-      - name: Free Disk Space
-        run: |
-          set -e
-
-          echo "========================================"
-          echo "💾 DISK BEFORE CLEANUP"
-          echo "========================================"
-
-          df -h
-          df -ih
-
-          echo "========================================"
-          echo "🧹 Cleaning unnecessary packages"
-          echo "========================================"
-
-          sudo rm -rf /usr/local/lib/android || true
-          sudo rm -rf /usr/share/dotnet || true
-          sudo rm -rf /opt/ghc || true
-          sudo rm -rf /usr/local/share/powershell || true
-          sudo rm -rf /usr/local/share/chromium || true
-          sudo rm -rf /usr/local/.ghcup || true
-          sudo rm -rf /usr/local/julia* || true
-          sudo rm -rf /usr/local/share/vcpkg || true
-          sudo rm -rf /opt/az || true
-
-          sudo apt-get clean || true
-          sudo rm -rf /var/lib/apt/lists/* || true
-          sudo rm -rf /var/cache/apt/archives/* || true
-
-          echo "========================================"
-          echo "💾 DISK AFTER CLEANUP"
-          echo "========================================"
-
-          df -h
-          df -ih
-
-      # ============================================================
-      # DEPENDENCIES
-      # ============================================================
-
       - name: Dependency Installation
         run: |
-          set -e
+          sudo apt update && sudo apt upgrade -y
+          sudo apt install -y git curl repo build-essential bc bison flex libssl-dev \
+            libelf-dev python3 python3-pip unzip zip rsync libncurses-dev lld
 
-          echo "========================================"
-          echo "📦 Installing dependencies"
-          echo "========================================"
-
-          sudo apt-get update
-
-          sudo apt-get install -y --no-install-recommends \
-            git \
-            curl \
-            repo \
-            build-essential \
-            bc \
-            bison \
-            flex \
-            libssl-dev \
-            libelf-dev \
-            python3 \
-            python3-pip \
-            unzip \
-            zip \
-            rsync \
-            libncurses-dev \
-            lld
-
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo rm -rf /var/cache/apt/archives/*
-
-          echo "========================================"
-          echo "💾 DISK AFTER DEPENDENCIES"
-          echo "========================================"
-
-          df -h
-          df -ih
-
-      # ============================================================
-      # CACHE KERNEL SOURCE
-      # ============================================================
-
+      # --- CACHE KERNEL SOURCE ---
       - name: Cache Kernel Source
         id: cache-source
         if: ${{ !inputs.force_clean }}
         uses: actions/cache@v4
         with:
           path: gki
-          key: kernel-source-android12-5.10-v2-${{ runner.os }}
+          key: kernel-source-android12-5.10-v1
 
-      # ============================================================
-      # INIT & SYNC GKI
-      # ============================================================
-
-      - name: Init & Sync GKI
-        if: steps.cache-source.outputs.cache-hit != 'true' || inputs.force_clean
+      # --- INIT & SYNC ---
+      - name: Init & Sync GKI (Download)
+        if: steps.cache-source.outputs.cache-hit != 'true'
         run: |
-          set -e
+          echo "⬇️ Cache miss or forced clean. Downloading Kernel Source..."
+          mkdir -p gki && cd gki
+          repo init -u https://android.googlesource.com/kernel/manifest -b common-android12-5.10 --depth=1
+          repo sync -c --no-tags --no-clone-bundle --optimized-fetch -j$(nproc --all)
 
-          echo "========================================"
-          echo "⬇️ Downloading GKI Source"
-          echo "========================================"
-
-          mkdir -p gki
-          cd gki
-
-          repo init \
-            -u https://android.googlesource.com/kernel/manifest \
-            -b common-android12-5.10 \
-            --depth=1
-
-          echo "========================================"
-          echo "⬇️ Syncing repositories"
-          echo "========================================"
-
-          repo sync \
-            -c \
-            --no-tags \
-            --no-clone-bundle \
-            --optimized-fetch \
-            -j$(nproc --all)
-
-          echo "========================================"
-          echo "📊 GKI SIZE"
-          echo "========================================"
-
-          cd ..
-
-          du -sh gki
-          df -h
-          df -ih
-
-      # ============================================================
-      # CLEAN CACHED SOURCE
-      # ============================================================
-
-      - name: Clean Source
-        if: steps.cache-source.outputs.cache-hit == 'true' && !inputs.force_clean
+      # --- CLEANUP ---
+      - name: Clean Source (Reset)
+        if: steps.cache-source.outputs.cache-hit == 'true'
         working-directory: gki/common
         run: |
-          set -e
-
-          echo "========================================"
-          echo "♻️ Cleaning cached kernel source"
-          echo "========================================"
-
+          echo "♻️ Cleaning source..."
           git reset --hard
           git clean -fdx
-
-          rm -rf drivers/staging/kernelsu
-          rm -rf drivers/kernelsu
-          rm -rf KernelSU
-
-          rm -f .config
-          rm -f arch/arm64/configs/gki_defconfig_old
-
+          rm -rf drivers/staging/kernelsu drivers/kernelsu KernelSU
+          rm -f .config arch/arm64/configs/gki_defconfig_old
           make mrproper
 
-      # ============================================================
-      # CACHE CLANG
-      # ============================================================
-
+      # --- CACHE CLANG ---
       - name: Cache Clang Toolchain
         id: cache-clang
         if: ${{ !inputs.force_clean }}
         uses: actions/cache@v4
         with:
           path: gki/prebuilts-master/clang/host/linux-x86
-          key: clang-12-r416183b-v2-${{ runner.os }}
+          key: clang-12-r416183b
 
-      # ============================================================
-      # SETUP CLANG 12
-      # ============================================================
-
+      # --- SETUP COMPILER ---
       - name: Setup Compiler (Clang 12)
-        if: steps.cache-clang.outputs.cache-hit != 'true' || inputs.force_clean
+        if: steps.cache-clang.outputs.cache-hit != 'true'
         working-directory: gki
         run: |
-          set -e
-
-          echo "========================================"
-          echo "🔧 Installing Clang r416183b"
-          echo "========================================"
-
           mkdir -p prebuilts-master/clang/host/linux-x86
-
           ACTUAL_VER="clang-r416183b"
-
           ACTUAL_URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master-kernel-build-2021/clang-r416183b.tar.gz"
-
-          rm -rf \
-            "prebuilts-master/clang/host/linux-x86/$ACTUAL_VER"
-
-          mkdir -p \
-            "prebuilts-master/clang/host/linux-x86/$ACTUAL_VER"
-
-          curl -L "$ACTUAL_URL" \
-            | tar -xz \
-              -C "prebuilts-master/clang/host/linux-x86/$ACTUAL_VER"
-
-      # ============================================================
-      # LINK CLANG VERSION
-      # ============================================================
+          mkdir -p "prebuilts-master/clang/host/linux-x86/$ACTUAL_VER"
+          curl -L "$ACTUAL_URL" | tar -xz -C "prebuilts-master/clang/host/linux-x86/$ACTUAL_VER"
 
       - name: Link Compiler
         working-directory: gki
         run: |
-          set -e
-
           ACTUAL_VER="clang-r416183b"
           EXPECTED_VER="clang-r563880b"
-
           cd prebuilts-master/clang/host/linux-x86
-
           rm -rf "$EXPECTED_VER"
-
           ln -s "$ACTUAL_VER" "$EXPECTED_VER"
 
-          echo "========================================"
-          echo "🔗 Compiler linked"
-          echo "========================================"
-
-          ls -lah
-
-      # ============================================================
-      # UPDATE KERNEL BRANCH
-      # ============================================================
-
+      # --- CORE PATCHING ---
       - name: Update Kernel Branch
-        working-directory: gki/common
         run: |
-          set -e
-
-          echo "========================================"
-          echo "🌿 Updating kernel branch"
-          echo "========================================"
-
-          if git remote get-url rama >/dev/null 2>&1; then
-            git remote set-url rama \
-              https://github.com/ramabondanp/android_kernel_common-5.10.git
-          else
-            git remote add rama \
-              https://github.com/ramabondanp/android_kernel_common-5.10.git
-          fi
-
-          git fetch rama android12-5.10-staging
-
-          git checkout -B \
-            update-android12-5.10-staging \
-            rama/android12-5.10-staging
-
+          cd gki/common
+          git remote add rama https://github.com/ramabondanp/android_kernel_common-5.10.git
+          git fetch -j12 rama
+          git checkout -b update-android12-5.10-staging rama/android12-5.10-staging || git checkout update-android12-5.10-staging
           rm -rf drivers/staging/kernelsu
-          rm -rf drivers/kernelsu
-          rm -rf KernelSU
-
-      # ============================================================
-      # MAMBOSU
-      # ============================================================
 
       - name: Setup MamboSU (RapliVx)
         working-directory: gki/common
         run: |
-          set -e
-
-          echo "========================================"
-          echo "🌀 Installing MamboSU / RapliVx"
-          echo "========================================"
-
-          rm -rf drivers/staging/kernelsu
-          rm -rf drivers/kernelsu
-          rm -rf KernelSU
-
-          time bash -c '
-            curl -LSs \
-              "https://raw.githubusercontent.com/Kingfinik98/VortexSU/refs/heads/main/kernel/setup.sh" \
-              | bash -s main
-          '
-
-      # ============================================================
-      # CLEAN BUILD CONFIG
-      # ============================================================
+          rm -rf drivers/staging/kernelsu drivers/kernelsu KernelSU
+          curl -LSs "https://raw.githubusercontent.com/Kingfinik98/VortexSU/refs/heads/main/kernel/setup.sh" | bash -s main
 
       - name: Clean Build Config
-        working-directory: gki/common
-        run: |
-          set -e
-
-          CONFIG_FILE="build.config.gki"
-
-          echo "Baris ke-2 sebelum dihapus:"
-          sed -n '2p' "$CONFIG_FILE" || true
-
-          LINE_COUNT=$(wc -l < "$CONFIG_FILE")
-
-          if [ "$LINE_COUNT" -ge 2 ]; then
-            sed -i '2d' "$CONFIG_FILE"
-            echo "✅ Baris ke-2 dihapus."
-          else
-            echo "⚠️ $CONFIG_FILE cuma punya $LINE_COUNT baris, skip."
-          fi
-
-      # ============================================================
-      # CRITICAL FIXES
-      # ============================================================
+        run: sed -i '2d' gki/common/build.config.gki
 
       - name: Apply Critical Fixes
         working-directory: gki/common
         run: |
-          set -e
-
-          echo "========================================"
-          echo "🛠️ Applying critical fixes"
-          echo "========================================"
-
-          [ -f fs/read_write.c ] && \
-            sed -i '/ksu_init_rc_hook/d' fs/read_write.c
-
-          [ -f fs/stat.c ] && \
-            sed -i '/ksu_handle_/d' fs/stat.c
-
-          sed -i \
-            '/config STACKPROTECTOR_PER_TASK/{n;s/def_bool y/bool "Stack Protector per task"\n\tdefault y/;}' \
-            arch/arm64/Kconfig
-
-          sed -i \
-            '/pr_warn.*disagrees about version of symbol.*/,+1 s/.*/return 1;/' \
-            kernel/module.c
-
-          DRM_FILE="drivers/gpu/drm/drm_atomic_helper.c"
-
-          if [ -f "$DRM_FILE" ]; then
-
-            if grep -q '^static int drm_atomic_check_valid_clones' "$DRM_FILE"; then
-              sed -i \
-                '/^static int drm_atomic_check_valid_clones/,/^}/d' \
-                "$DRM_FILE"
-
-              echo "✅ Fungsi drm_atomic_check_valid_clones dihapus."
-            fi
-
-            if grep -q 'ret = drm_atomic_check_valid_clones' "$DRM_FILE"; then
-
-              CALL_LINE=$(grep -n \
-                'ret = drm_atomic_check_valid_clones' \
-                "$DRM_FILE" \
-                | head -1 \
-                | cut -d: -f1)
-
-              END_LINE=$(awk \
-                -v start="$CALL_LINE" \
-                'NR>=start && NR<=start+10 && /return ret;/{print NR; exit}' \
-                "$DRM_FILE")
-
-              if [ -n "$END_LINE" ]; then
-                sed -i "${CALL_LINE},${END_LINE}d" "$DRM_FILE"
-                echo "✅ DRM call dihapus."
-              fi
-            fi
-          fi
-
-      # ============================================================
-      # KERNEL CONFIGURATION
-      # ============================================================
+          [ -f fs/read_write.c ] && sed -i '/ksu_init_rc_hook/d' fs/read_write.c
+          [ -f fs/stat.c ] && sed -i '/ksu_handle_/d' fs/stat.c
+          
+          sed -i '/config STACKPROTECTOR_PER_TASK/{n;s/def_bool y/bool "Stack Protector per task"\n\tdefault y/;}' arch/arm64/Kconfig
+          sed -i '/pr_warn.*disagrees about version of symbol.*/,+1 s/.*/return 1;/' kernel/module.c
+          sed -i '/^static int drm_atomic_check_valid_clones/,/^}/d' drivers/gpu/drm/drm_atomic_helper.c
+          sed -i '/ret = drm_atomic_check_valid_clones/,/return ret;/d' drivers/gpu/drm/drm_atomic_helper.c
 
       - name: Configure Kernel
         working-directory: gki/common
         run: |
-          set -e
-
-          echo "========================================"
-          echo "⚙️ Configuring kernel"
-          echo "========================================"
-
           TARGET_CONFIG="arch/arm64/configs/gki_defconfig"
-
-          cat >> "$TARGET_CONFIG" <<'EOF'
-
+          cat >> $TARGET_CONFIG <<EOF
           CONFIG_KSU=y
           CONFIG_KPM=n
-          CONFIG_KSU_MANUAL_HOOK=n
-          CONFIG_KSU_KPROBES_HOOK=y
-
-          CONFIG_HZ_500=y
-          CONFIG_HZ=500
-
+          CONFIG_KSU_MANUAL_HOOK=y
+          CONFIG_KSU_KPROBES_HOOK=n
+          CONFIG_HZ_1000=y
+          CONFIG_HZ=1000
           CONFIG_NO_HZ=y
-
           CONFIG_FS_ENCRYPTION=y
           CONFIG_FS_VERITY=y
-
           CONFIG_PM_AUTOSLEEP=y
           CONFIG_PM_WAKELOCKS=y
-
           CONFIG_LOCALVERSION_AUTO=n
           EOF
-
-          echo "========================================"
-          echo "🔧 HZ configuration:"
-          echo "========================================"
-
-          grep -E '^CONFIG_HZ(_500)?=' "$TARGET_CONFIG" || true
-
-      # ============================================================
-      # VERSIONING
-      # ============================================================
 
       - name: Apply Versioning
         working-directory: gki/common
         run: |
-          set -e
-
           NAME="${{ github.event.inputs.kernel_name }}"
-
           [ -z "$NAME" ] && NAME="Zixine"
-
           FINAL_TAG="-${NAME}"
-
           echo "" > scripts/setlocalversion
-
           if grep -q '^EXTRAVERSION *=' Makefile; then
-            sed -i \
-              "s/^EXTRAVERSION *=.*/EXTRAVERSION = $FINAL_TAG/" \
-              Makefile
+            sed -i "s/^EXTRAVERSION *=.*/EXTRAVERSION = $FINAL_TAG/" Makefile
           else
             echo "EXTRAVERSION = $FINAL_TAG" >> Makefile
           fi
 
-          echo "Kernel version tag: $FINAL_TAG"
-
-      # ============================================================
-      # BUILD
-      # ============================================================
-
-      - name: Execute Build (Optimized)
+      - name: Execute Build (With No-WError)
         working-directory: gki
         run: |
-          set -e
-
-          echo "========================================"
-          echo "🚀 STARTING KERNEL COMPILATION"
-          echo "========================================"
-
-          echo "💾 Disk before build:"
-          df -h
-
-          echo "🧠 CPU:"
-          nproc --all
-
+          echo "🚀 Starting Compilation..."
           export KMI_SYMBOL_LIST_STRICT_MODE=0
           export KMI_ENFORCED=0
           export TRIM_NONLISTED_KMI=0
-
-          export LTO=thin
-          export KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=visibility"
-
-          echo "========================================"
-          echo "⚙️ Build configuration"
-          echo "========================================"
-          echo "LTO     : $LTO"
-          echo "KCFLAGS : $KCFLAGS"
-          echo "JOBS    : $(nproc --all)"
-          echo "BUILD_CONFIG : common/build.config.gki.aarch64"
-          echo "========================================"
-
-          if [ ! -f "common/build.config.gki.aarch64" ]; then
-            echo "❌ BUILD_CONFIG tidak ditemukan!"
-            ls -lah common/build.config* || true
-            exit 1
-          fi
-
-          time env \
-            BUILD_CONFIG=common/build.config.gki.aarch64 \
-            LTO=thin \
-            KCFLAGS="$KCFLAGS" \
-            build/build.sh
-
-      # ============================================================
-      # PACKAGE & RELEASE
-      # ============================================================
+          # Tambahkan -Wno-error=implicit-function-declaration untuk bypass error header bandel
+          LTO=thin KCFLAGS="-O3 -Wno-error=implicit-function-declaration -Wno-error=visibility" BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
 
       - name: Packaging & Release
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
         run: |
-          set -e
-
-          if [ -z "$GH_TOKEN" ]; then
-            echo "❌ Secret RELEASE_TOKEN belum di-set."
-            exit 1
-          fi
-
-          echo "========================================"
-          echo "📦 PACKAGING KERNEL"
-          echo "========================================"
-
           BASE_VER=$(make -s kernelversion -C gki/common | tr -d '\n\r')
           FULL_VER=$(make -s kernelversion -C gki/common | tr -d '\n\r')
           DATE=$(date +"%Y%m%d")
-
           KNAME="${{ github.event.inputs.kernel_name }}"
           [ -z "$KNAME" ] && KNAME="Zixine"
-
-          ZIP_NAME="AK3-${KNAME}-${DATE}-${BASE_VER}-500Hz.zip"
-
-          echo "Kernel : $FULL_VER"
-          echo "Package: $ZIP_NAME"
-
-          AK3_REPO="https://github.com/zixine/anykernel"
-
-          git clone \
-            -q \
-            --depth=1 \
-            "$AK3_REPO" \
-            -b main \
-            anykernel
-
-          IMG=$(find gki/out \
-            -name "Image" \
-            -type f \
-            | head -n 1)
-
-          if [ -z "$IMG" ]; then
-            echo "❌ Error: Image not found!"
-            exit 1
-          fi
-
-          echo "Image found: $IMG"
-
+          ZIP_NAME="AK3-${KNAME}-${DATE}-${BASE_VER}-600Hz.zip"
+          AK3_REPO="https://github.com/zixine/anykernel" 
+          git clone -q --depth=1 "$AK3_REPO" -b main anykernel
+          IMG=$(find gki/out -name "Image" -type f | head -n 1)
+          if [ -z "$IMG" ]; then echo "❌ Error: Image not found!"; exit 1; fi
           cp "$IMG" anykernel/
-
-          sed -i \
-            "s|kernel.string=.*|kernel.string=${FULL_VER} by Zixine|g" \
-            anykernel/anykernel.sh
-
+          sed -i "s|kernel.string=.*|kernel.string=${FULL_VER} by Zixine|g" anykernel/anykernel.sh
           cd anykernel
-
-          chmod +x \
-            anykernel.sh \
-            tools/magiskboot \
-            tools/ak3-core.sh \
-            META-INF/com/google/android/update-binary
-
-          zip -r9 \
-            "../$ZIP_NAME" \
-            * \
-            -x .git \
-            -x .gitignore \
-            -x README.md
-
+          chmod +x anykernel.sh tools/magiskboot tools/ak3-core.sh META-INF/com/google/android/update-binary
+          zip -r9 "../$ZIP_NAME" * -x .git .gitignore README.md
           cd ..
-
-          echo "========================================"
-          echo "📦 ZIP CREATED"
-          echo "========================================"
-
-          ls -lh "$ZIP_NAME"
-
           TARGET_REPO="zixine/Kernel-GKI-12-5.10-release"
           RELEASE_TAG="${KNAME}-${DATE}-Mambo"
-          RELEASE_STATUS="${{ github.event.inputs.release_status }}"
-
-          echo "Release tag: $RELEASE_TAG"
-          echo "Release status: $RELEASE_STATUS"
-
-          echo "========================================"
-          echo "🚀 GITHUB RELEASE"
-          echo "========================================"
-
-          if gh release view "$RELEASE_TAG" \
-            --repo "$TARGET_REPO" \
-            >/dev/null 2>&1; then
-
-            echo "♻️ Release already exists."
-
-            gh release upload \
-              "$RELEASE_TAG" \
-              "$ZIP_NAME" \
-              --repo "$TARGET_REPO" \
-              --clobber
-
+          if gh release view "$RELEASE_TAG" --repo "$TARGET_REPO" > /dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ZIP_NAME" --repo "$TARGET_REPO" --clobber
           else
-
-            echo "🆕 Creating release..."
-
-            if [ "$RELEASE_STATUS" = "BETA" ]; then
-
-              gh release create \
-                "$RELEASE_TAG" \
-                "$ZIP_NAME" \
-                --repo "$TARGET_REPO" \
-                --title "Zixine MamboSU ${DATE}" \
-                --notes "Automated MamboSU Kernel Build" \
-                --prerelease
-
-            else
-
-              gh release create \
-                "$RELEASE_TAG" \
-                "$ZIP_NAME" \
-                --repo "$TARGET_REPO" \
-                --title "Zixine MamboSU ${DATE}" \
-                --notes "Automated MamboSU Kernel Build"
-
-            fi
+            gh release create "$RELEASE_TAG" "$ZIP_NAME" --repo "$TARGET_REPO" --title "Zixine MamboSU ${DATE}" --notes "Automated Build" --prerelease=false
           fi
-
-      # ============================================================
-      # BUILD LOG
-      # ============================================================
 
       - name: Archive Build Log
         if: always()
@@ -687,24 +221,3 @@ jobs:
           name: build-log-mambo
           path: gki/out/android12-5.10/common/build.log
           if-no-files-found: warn
-
-      # ============================================================
-      # FINAL DISK STATUS
-      # ============================================================
-
-      - name: Final Disk Status
-        if: always()
-        run: |
-          echo "========================================"
-          echo "💾 FINAL DISK STATUS"
-          echo "========================================"
-
-          df -h
-          echo
-          df -ih
-
-          if [ -d gki ]; then
-            echo
-            echo "GKI size:"
-            du -sh gki || true
-          fi
