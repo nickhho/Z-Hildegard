@@ -1,4 +1,4 @@
-name: zixine Kernel Builder (MamboSU RapliVx - V12 Fixed)
+name: zixine Kernel Builder (MamboSU RapliVx - V13 Optimized)
 
 on:
   workflow_dispatch:
@@ -29,7 +29,7 @@ permissions:
 
 jobs:
   mambo-build:
-    name: Build MamboSU (Cached)
+    name: Build MamboSU (Optimized + Cached)
     runs-on: ubuntu-22.04
 
     steps:
@@ -76,47 +76,33 @@ jobs:
           echo "========================================"
           echo "💾 DISK BEFORE CLEANUP"
           echo "========================================"
+
           df -h
-          echo
           df -ih
 
           echo "========================================"
-          echo "🧹 Removing unnecessary packages"
+          echo "🧹 Cleaning unnecessary packages"
           echo "========================================"
 
-          sudo rm -rf /usr/local/lib/android
-          sudo rm -rf /usr/share/dotnet
-          sudo rm -rf /opt/ghc
-          sudo rm -rf /opt/hostedtoolcache
-          sudo rm -rf /usr/local/share/powershell
-          sudo rm -rf /usr/local/share/chromium
-          sudo rm -rf /usr/local/lib/node_modules
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/share/powershell || true
+          sudo rm -rf /usr/local/share/chromium || true
+          sudo rm -rf /usr/local/.ghcup || true
+          sudo rm -rf /usr/local/julia* || true
+          sudo rm -rf /usr/local/share/vcpkg || true
+          sudo rm -rf /opt/az || true
 
-          sudo rm -rf /usr/local/.ghcup
-          sudo rm -rf /usr/local/julia*
-          sudo rm -rf /usr/local/share/vcpkg
-          sudo rm -rf /opt/az
-
-          echo "========================================"
-          echo "🐳 Cleaning Docker"
-          echo "========================================"
-
-          sudo docker system prune -af || true
-
-          echo "========================================"
-          echo "📦 Cleaning APT"
-          echo "========================================"
-
-          sudo apt-get clean
-          sudo rm -rf /var/lib/apt/lists/*
-          sudo rm -rf /var/cache/apt/archives/*
+          sudo apt-get clean || true
+          sudo rm -rf /var/lib/apt/lists/* || true
+          sudo rm -rf /var/cache/apt/archives/* || true
 
           echo "========================================"
           echo "💾 DISK AFTER CLEANUP"
           echo "========================================"
 
           df -h
-          echo
           df -ih
 
       # ============================================================
@@ -160,17 +146,7 @@ jobs:
           echo "========================================"
 
           df -h
-          echo
           df -ih
-
-      # ============================================================
-      # NOTE: langkah "Force Clean Old GKI" yang lama dihapus.
-      # Step itu jalan SEBELUM cache di-restore, jadi folder `gki`
-      # memang belum ada di runner fresh -> tidak pernah punya efek.
-      # Efek "force clean" sudah tercapai lewat kondisi `if` di step
-      # Cache Kernel Source / Cache Clang Toolchain di bawah, yang
-      # otomatis skip restore cache kalau force_clean=true.
-      # ============================================================
 
       # ============================================================
       # CACHE KERNEL SOURCE
@@ -352,13 +328,6 @@ jobs:
       # ============================================================
       # MAMBOSU
       # ============================================================
-      # PERHATIAN (keamanan): script setup ini di-curl lalu langsung
-      # di-pipe ke bash dari repo pihak ketiga (VortexSU), memakai
-      # branch "main" yang bisa berubah isinya kapan saja tanpa kamu
-      # sadar (supply-chain risk). Idealnya pin ke commit hash
-      # tertentu, mis. .../refs/heads/main -> /<commit_sha>/kernel/setup.sh
-      # dan/atau verifikasi checksum sebelum eksekusi.
-      # ============================================================
 
       - name: Setup MamboSU (RapliVx)
         working-directory: gki/common
@@ -373,14 +342,14 @@ jobs:
           rm -rf drivers/kernelsu
           rm -rf KernelSU
 
-          curl -LSs \
-            "https://raw.githubusercontent.com/Kingfinik98/VortexSU/refs/heads/main/kernel/setup.sh" \
-            | bash -s main
+          time bash -c '
+            curl -LSs \
+              "https://raw.githubusercontent.com/Kingfinik98/VortexSU/refs/heads/main/kernel/setup.sh" \
+              | bash -s main
+          '
 
       # ============================================================
-      # CLEAN BUILD CONFIG (diperbaiki: tidak lagi hardcode "hapus baris 2"
-      # tanpa validasi — sekarang log dulu isinya dan cek jumlah baris
-      # supaya tidak diam-diam merusak file kalau struktur upstream berubah)
+      # CLEAN BUILD CONFIG
       # ============================================================
 
       - name: Clean Build Config
@@ -394,17 +363,16 @@ jobs:
           sed -n '2p' "$CONFIG_FILE" || true
 
           LINE_COUNT=$(wc -l < "$CONFIG_FILE")
+
           if [ "$LINE_COUNT" -ge 2 ]; then
             sed -i '2d' "$CONFIG_FILE"
             echo "✅ Baris ke-2 dihapus."
           else
-            echo "⚠️ $CONFIG_FILE cuma punya $LINE_COUNT baris, skip penghapusan (cek manual!)."
+            echo "⚠️ $CONFIG_FILE cuma punya $LINE_COUNT baris, skip."
           fi
 
       # ============================================================
-      # CRITICAL FIXES (diperbaiki: penghapusan fungsi/pemanggilan drm
-      # sekarang divalidasi dulu supaya sed range tidak "kabur" sampai
-      # akhir file kalau pattern penutup tidak ditemukan)
+      # CRITICAL FIXES
       # ============================================================
 
       - name: Apply Critical Fixes
@@ -435,28 +403,31 @@ jobs:
           if [ -f "$DRM_FILE" ]; then
 
             if grep -q '^static int drm_atomic_check_valid_clones' "$DRM_FILE"; then
-              sed -i '/^static int drm_atomic_check_valid_clones/,/^}/d' "$DRM_FILE"
+              sed -i \
+                '/^static int drm_atomic_check_valid_clones/,/^}/d' \
+                "$DRM_FILE"
+
               echo "✅ Fungsi drm_atomic_check_valid_clones dihapus."
-            else
-              echo "⚠️ Fungsi drm_atomic_check_valid_clones tidak ditemukan, skip."
             fi
 
             if grep -q 'ret = drm_atomic_check_valid_clones' "$DRM_FILE"; then
-              CALL_LINE=$(grep -n 'ret = drm_atomic_check_valid_clones' "$DRM_FILE" | head -1 | cut -d: -f1)
-              END_LINE=$(awk -v start="$CALL_LINE" 'NR>=start && NR<=start+10 && /return ret;/{print NR; exit}' "$DRM_FILE")
+
+              CALL_LINE=$(grep -n \
+                'ret = drm_atomic_check_valid_clones' \
+                "$DRM_FILE" \
+                | head -1 \
+                | cut -d: -f1)
+
+              END_LINE=$(awk \
+                -v start="$CALL_LINE" \
+                'NR>=start && NR<=start+10 && /return ret;/{print NR; exit}' \
+                "$DRM_FILE")
 
               if [ -n "$END_LINE" ]; then
                 sed -i "${CALL_LINE},${END_LINE}d" "$DRM_FILE"
-                echo "✅ Pemanggilan drm_atomic_check_valid_clones dihapus (baris $CALL_LINE-$END_LINE)."
-              else
-                echo "⚠️ 'return ret;' tidak ditemukan dalam 10 baris setelah pemanggilan — skip, supaya tidak menghapus sampai akhir file."
+                echo "✅ DRM call dihapus."
               fi
-            else
-              echo "⚠️ Pemanggilan drm_atomic_check_valid_clones tidak ditemukan, skip."
             fi
-
-          else
-            echo "⚠️ $DRM_FILE tidak ada, skip critical fix untuk file ini."
           fi
 
       # ============================================================
@@ -482,7 +453,7 @@ jobs:
           if [ -f "$ADDON_DIR/adios/adios.sh" ]; then
             echo "⚡ Applying ADIOS..."
             chmod +x "$ADDON_DIR/adios/adios.sh"
-            bash "$ADDON_DIR/adios/adios.sh"
+            time bash "$ADDON_DIR/adios/adios.sh"
           else
             echo "⚠️ ADIOS script tidak ditemukan, skip."
           fi
@@ -490,7 +461,7 @@ jobs:
           if [ -f "$ADDON_DIR/bbrv3/bbrv3.sh" ]; then
             echo "⚡ Applying BBRv3..."
             chmod +x "$ADDON_DIR/bbrv3/bbrv3.sh"
-            bash "$ADDON_DIR/bbrv3/bbrv3.sh"
+            time bash "$ADDON_DIR/bbrv3/bbrv3.sh"
           else
             echo "⚠️ BBRv3 script tidak ditemukan, skip."
           fi
@@ -498,7 +469,7 @@ jobs:
           if [ -f "$ADDON_DIR/bore/bore.sh" ]; then
             echo "⚡ Applying BORE..."
             chmod +x "$ADDON_DIR/bore/bore.sh"
-            bash "$ADDON_DIR/bore/bore.sh"
+            time bash "$ADDON_DIR/bore/bore.sh"
           else
             echo "⚠️ BORE script tidak ditemukan, skip."
           fi
@@ -506,7 +477,7 @@ jobs:
           if [ -f "$ADDON_DIR/kasumi/kasumi.sh" ]; then
             echo "⚡ Applying KASUMI..."
             chmod +x "$ADDON_DIR/kasumi/kasumi.sh"
-            bash "$ADDON_DIR/kasumi/kasumi.sh"
+            time bash "$ADDON_DIR/kasumi/kasumi.sh"
           else
             echo "⚠️ KASUMI script tidak ditemukan, skip."
           fi
@@ -553,6 +524,8 @@ jobs:
 
           echo "========================================"
           echo "🔧 HZ configuration:"
+          echo "========================================"
+
           grep -E '^CONFIG_HZ(_500)?=' "$TARGET_CONFIG" || true
 
       # ============================================================
@@ -586,7 +559,7 @@ jobs:
       # BUILD
       # ============================================================
 
-      - name: Execute Build (With No-WError)
+      - name: Execute Build (Optimized)
         working-directory: gki
         run: |
           set -e
@@ -598,28 +571,31 @@ jobs:
           echo "💾 Disk before build:"
           df -h
 
+          echo "🧠 CPU:"
+          nproc --all
+
           export KMI_SYMBOL_LIST_STRICT_MODE=0
           export KMI_ENFORCED=0
           export TRIM_NONLISTED_KMI=0
 
-          LTO=thin \
-          KCFLAGS="-O3 -Wno-error=implicit-function-declaration -Wno-error=visibility" \
-          BUILD_CONFIG=common/build.config.gki.aarch64 \
-          build/build.sh
+          # ThinLTO tetap digunakan.
+          # -O3 dihapus untuk mengurangi beban compile.
+          export LTO=thin
+
+          export KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=visibility"
+
+          echo "========================================"
+          echo "⚙️ Build configuration"
+          echo "========================================"
+          echo "LTO     : $LTO"
+          echo "KCFLAGS : $KCFLAGS"
+          echo "JOBS    : $(nproc --all)"
+          echo "========================================"
+
+          time build/build.sh
 
       # ============================================================
       # PACKAGE & RELEASE
-      # ============================================================
-      # PERBAIKAN PENTING: sebelumnya pakai ${{ github.token }} (GITHUB_TOKEN
-      # bawaan), yang HANYA punya akses ke repo tempat workflow ini berjalan.
-      # Karena release dibuat di repo LAIN (zixine/Kernel-GKI-12-5.10-release),
-      # `gh release create/upload` akan gagal (403/404) kalau bukan repo yang
-      # sama dengan repo workflow ini.
-      #
-      # FIX: buat Personal Access Token (classic atau fine-grained) yang
-      # punya akses "repo" / "contents: write" ke repo target, simpan sebagai
-      # secret repo ini dengan nama RELEASE_TOKEN (Settings > Secrets and
-      # variables > Actions > New repository secret), lalu dipakai di bawah.
       # ============================================================
 
       - name: Packaging & Release
@@ -629,7 +605,7 @@ jobs:
           set -e
 
           if [ -z "$GH_TOKEN" ]; then
-            echo "❌ Secret RELEASE_TOKEN belum di-set. Tambahkan di Settings > Secrets and variables > Actions."
+            echo "❌ Secret RELEASE_TOKEN belum di-set."
             exit 1
           fi
 
@@ -746,7 +722,6 @@ jobs:
                 --notes "Automated MamboSU Kernel Build"
 
             fi
-
           fi
 
       # ============================================================
