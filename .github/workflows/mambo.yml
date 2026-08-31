@@ -446,18 +446,6 @@ jobs:
 
           ADDON_DIR="$GITHUB_WORKSPACE/add-on/addons"
 
-          echo "========================================"
-          echo "⚡ APPLYING OPTIMIZATION ADDONS"
-          echo "========================================"
-
-          if [ -f "$ADDON_DIR/adios/adios.sh" ]; then
-            echo "⚡ Applying ADIOS..."
-            chmod +x "$ADDON_DIR/adios/adios.sh"
-            time bash "$ADDON_DIR/adios/adios.sh"
-          else
-            echo "⚠️ ADIOS script tidak ditemukan, skip."
-          fi
-
           if [ -f "$ADDON_DIR/bbrv3/bbrv3.sh" ]; then
             echo "⚡ Applying BBRv3..."
             chmod +x "$ADDON_DIR/bbrv3/bbrv3.sh"
