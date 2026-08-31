@@ -431,50 +431,6 @@ jobs:
           fi
 
       # ============================================================
-      # OPTIMIZATION ADDONS
-      # ============================================================
-
-      - name: Apply Optimization Addons
-        working-directory: gki/common
-        run: |
-          set -e
-
-          export KERNEL_SRC="$PWD"
-          export KERNEL_VERSION="5.10"
-          export LUMINAIRE_PATCH_DIR="$GITHUB_WORKSPACE"
-          export ROOT_DIR="$GITHUB_WORKSPACE"
-
-          ADDON_DIR="$GITHUB_WORKSPACE/add-on/addons"
-
-          if [ -f "$ADDON_DIR/bbrv3/bbrv3.sh" ]; then
-            echo "⚡ Applying BBRv3..."
-            chmod +x "$ADDON_DIR/bbrv3/bbrv3.sh"
-            time bash "$ADDON_DIR/bbrv3/bbrv3.sh"
-          else
-            echo "⚠️ BBRv3 script tidak ditemukan, skip."
-          fi
-
-          if [ -f "$ADDON_DIR/bore/bore.sh" ]; then
-            echo "⚡ Applying BORE..."
-            chmod +x "$ADDON_DIR/bore/bore.sh"
-            time bash "$ADDON_DIR/bore/bore.sh"
-          else
-            echo "⚠️ BORE script tidak ditemukan, skip."
-          fi
-
-          if [ -f "$ADDON_DIR/kasumi/kasumi.sh" ]; then
-            echo "⚡ Applying KASUMI..."
-            chmod +x "$ADDON_DIR/kasumi/kasumi.sh"
-            time bash "$ADDON_DIR/kasumi/kasumi.sh"
-          else
-            echo "⚠️ KASUMI script tidak ditemukan, skip."
-          fi
-
-          echo "========================================"
-          echo "✅ OPTIMIZATION ADDONS SELESAI"
-          echo "========================================"
-
-      # ============================================================
       # KERNEL CONFIGURATION
       # ============================================================
 
