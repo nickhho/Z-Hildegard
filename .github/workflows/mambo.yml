@@ -522,10 +522,7 @@ jobs:
           export KMI_ENFORCED=0
           export TRIM_NONLISTED_KMI=0
 
-          # ThinLTO tetap digunakan.
-          # -O3 dihapus untuk mengurangi beban compile.
           export LTO=thin
-
           export KCFLAGS="-Wno-error=implicit-function-declaration -Wno-error=visibility"
 
           echo "========================================"
@@ -534,9 +531,20 @@ jobs:
           echo "LTO     : $LTO"
           echo "KCFLAGS : $KCFLAGS"
           echo "JOBS    : $(nproc --all)"
+          echo "BUILD_CONFIG : common/build.config.gki.aarch64"
           echo "========================================"
 
-          time build/build.sh
+          if [ ! -f "common/build.config.gki.aarch64" ]; then
+            echo "❌ BUILD_CONFIG tidak ditemukan!"
+            ls -lah common/build.config* || true
+            exit 1
+          fi
+
+          time env \
+            BUILD_CONFIG=common/build.config.gki.aarch64 \
+            LTO=thin \
+            KCFLAGS="$KCFLAGS" \
+            build/build.sh
 
       # ============================================================
       # PACKAGE & RELEASE
