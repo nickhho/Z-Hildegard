@@ -12,7 +12,7 @@
 # adios_completed_request() for UFS MCQ (rq->elv.priv[0] can be NULL for
 # requests that never went through elevator insert).
 
-ADIOS_PATCH="${LUMINAIRE_PATCH_DIR}/kernel/addons/adios/adios-android14-6.1-v3.2.0.patch"
+ADIOS_PATCH="add-on/addons/adios/adios-android14-6.1-v3.2.0.patch"
 
 log "📦 Applying ADIOS I/O scheduler patch..."
 [ -f "$ADIOS_PATCH" ] || error "ADIOS: patch file not found at ${ADIOS_PATCH}!"
