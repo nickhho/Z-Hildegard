@@ -197,8 +197,8 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_SU=y
           CONFIG_KSU_SUSFS_SUS_KSTAT_SPOOF_GENERIC=y
           CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSTAT=y
-          CONFIG_HZ_300=y
-          CONFIG_HZ=300
+          CONFIG_HZ_500=y
+          CONFIG_HZ=500
           CONFIG_NO_HZ=y
           CONFIG_FS_ENCRYPTION=y
           CONFIG_FS_VERITY=y
