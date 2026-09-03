@@ -6,7 +6,7 @@ on:
       kernel_name:
         description: 'Nama Kernel (Akan menjadi nama final, misal: Zixine-V1)'
         required: true
-        default: 'Zixine-Elysium-inline-2.63'
+        default: 'Z-Ayliud-V1'
         type: string
 
 permissions:
@@ -97,15 +97,9 @@ jobs:
       - name: Setup KernelSU-Next & SUSFS Hook
         working-directory: gki/common
         run: |
-          echo "🧩 Setup KernelSU-Next & SUSFS
-          curl -LSs "https://raw.githubusercontent.com/zixine/ZixineSu/refs/heads/master/kernel/setup.sh" | bash -s susfs-mambo-master
-          
-          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-android12-5.10 sus
-          cp -r sus/kernel_patches/fs .
-          cp -r sus/kernel_patches/include .
-          patch -p1 < sus/kernel_patches/50_add_susfs_in_gki-android12-5.10.patch
-          sed -i '1i#include <linux/stat.h>' include/linux/susfs.h
-          echo "✅ KernelSU-Next & SUSFS Ready."
+          echo "🧩 Setup MamboSU"
+          curl -LSs "https://raw.githubusercontent.com/RapliVx/KernelSU/xxksu/kernel/setup.sh" | bash -s xxksu
+          echo "✅ MamboSU"
 
       - name: Apply common fixes
         working-directory: gki/common
@@ -132,6 +126,8 @@ jobs:
           CONFIG_KSU_SUSFS_SUS_SU=y
           CONFIG_KSU_SYSCALL_HOOK=y
           CONFIG_KPROBES=y
+          CONFIG_KRETPROBES=y
+          CONFIG_HAVE_SYSCALL_TRACEPOINTS=y
           CONFIG_KPROBE_EVENTS=y
           CONFIG_KSU_SUSFS=y
           CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=y
@@ -152,24 +148,34 @@ jobs:
           CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
           EOF
           
-          # -all Configs
             cat >> $DEFCONFIG <<EOF
-          CONFIG_CPU_FREQ=y
-          CONFIG_HIGH_RES_TIMERS=y
           CONFIG_LTO=y
           CONFIG_LTO_CLANG=y
           CONFIG_LTO_CLANG_THIN=y
+          CONFIG_THINLTO=y
+          CONFIG_SECURITY_SELINUX=y
+          CONFIG_SECURITY_SELINUX_DEVELOP=y
+          CONFIG_SLUB_DEBUG=n
+          CONFIG_PROVE_LOCKING=n
+          CONFIG_DEBUG_SPINLOCK=n
+          CONFIG_DEBUG_MUTEXES=n
+          CONFIG_WIREGUARD=y
+          CONFIG_NTFS_FS=y
+          CONFIG_NTFS3_FS=y
+          CONFIG_CPU_FREQ=y
+          CONFIG_CPU_FREQ_GOV_SCHEDUTIL=y
+          CONFIG_CPU_FREQ_DEFAULT_GOV_SCHEDUTIL=y
+          CONFIG_UCLAMP_TASK=y
+          CONFIG_UCLAMP_TASK_GROUP=y
+          CONFIG_SCHED_TUNE=y
+          CONFIG_SCHED_CORE=y
+          CONFIG_HIGH_RES_TIMERS=y
           CONFIG_NO_HZ_COMMON=y
-          # CONFIG_HZ_PERIODIC is not set
           CONFIG_NO_HZ_IDLE=y
-          # CONFIG_NO_HZ_FULL is not set
           CONFIG_NO_HZ=y
           CONFIG_RCU_FAST_NO_HZ=y
-          # CONFIG_HZ_100 is not set
-          # CONFIG_HZ_250 is not set
-          # CONFIG_HZ_1000 is not set
-          CONFIG_NO_HZ_COMMON=y  
-          EOF
+          CONFIG_HZ_500=y
+          CONFIG_HZ=500
 
       - name: Setup Versioning
         working-directory: gki/common
