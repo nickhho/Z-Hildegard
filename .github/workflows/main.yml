@@ -155,6 +155,7 @@ jobs:
           CONFIG_RCU_FAST_NO_HZ=y
           CONFIG_HZ_500=y
           CONFIG_HZ=500
+          EOF
 
       - name: Setup Versioning
         working-directory: gki/common
@@ -207,27 +208,95 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -e
+      
           DATE=$(date +"%Y%m%d")
-          # Tag unik berdasarkan nomor run agar semua matrix masuk ke satu halaman release
-          RELEASE_TAG="Zixine-GKI-Run-${{ github.run_number }}"
+          RELEASE_TAG="Z-Aylius-${{ github.run_number }}"
           ZIP_NAME="Z-Aylius-V1-${DATE}.zip"
-          
-          git clone -q --depth=1 "https://github.com/zixine/anykernel" -b main anykernel
-          IMG=$(find gki/out -name "Image" -type f | head -n 1)
-          cp "$IMG" anykernel/
-          
+      
+          echo "========================================"
+          echo "📦 PACKAGING KERNEL"
+          echo "========================================"
+      
+          # Clone AnyKernel3 resmi
+          git clone -q --depth=1 \
+            https://github.com/osm0sis/AnyKernel3.git \
+            anykernel
+      
+          # Cari Image hasil build
+          IMG=$(find gki/out -type f -name "Image" | head -n 1)
+      
+          if [ -z "$IMG" ]; then
+            echo "❌ Kernel Image tidak ditemukan!"
+            exit 1
+          fi
+      
+          echo "✅ Kernel Image ditemukan:"
+          echo "$IMG"
+          ls -lh "$IMG"
+      
+          # Masukkan Image ke root AnyKernel3
+          cp "$IMG" anykernel/Image
+      
+          # Tampilkan isi AnyKernel
+          echo "========================================"
+          echo "📂 ANYKERNEL CONTENT"
+          echo "========================================"
+          ls -lah anykernel
+      
+          # Tampilkan konfigurasi penting
+          echo "========================================"
+          echo "🔧 ANYKERNEL CONFIG"
+          echo "========================================"
+          grep -E \
+            'kernel.string=|BLOCK=|IS_SLOT_DEVICE=|RAMDISK_COMPRESSION=|PATCH_VBMETA_FLAG=' \
+            anykernel/anykernel.sh || true
+      
+          # Update nama kernel
           FULL_VER=$(make -s kernelversion -C gki/common | tr -d '\n\r')
-          sed -i "s|kernel.string=.*|kernel.string=${FULL_VER} |g" anykernel/anykernel.sh
-          
+      
+          sed -i \
+            "s|^kernel.string=.*|kernel.string=${FULL_VER}|" \
+            anykernel/anykernel.sh
+      
+          echo "Kernel version: $FULL_VER"
+      
+          # Buat ZIP
           cd anykernel
-          zip -r9 "../$ZIP_NAME" * -x .git .gitignore README.md
+      
+          zip -r9 "../$ZIP_NAME" * \
+            -x ".git/*" \
+               ".gitignore" \
+               "README.md" \
+               "*placeholder*"
+      
           cd ..
-          
+      
+          echo "========================================"
+          echo "✅ ZIP BERHASIL DIBUAT"
+          echo "========================================"
+          ls -lh "$ZIP_NAME"
+      
+          # Upload ke Release
           TARGET_REPO="nickhho/Z-Hildegard"
-          
+      
           echo "🚀 Mengunggah $ZIP_NAME ke $TARGET_REPO..."
-          gh release create "$RELEASE_TAG" --repo "$TARGET_REPO" --title "ZixineSu add Build ${DATE}" --notes "p." --prerelease=false 2>/dev/null || true
-          gh release upload "$RELEASE_TAG" "$ZIP_NAME" --repo "$TARGET_REPO" --clobber
+      
+          gh release create "$RELEASE_TAG" \
+            --repo "$TARGET_REPO" \
+            --title "Z-Aylius ${DATE}" \
+            --notes "Z-Aylius GKI Kernel Build ${DATE}" \
+            --prerelease=false 2>/dev/null || true
+      
+          gh release upload \
+            "$RELEASE_TAG" \
+            "$ZIP_NAME" \
+            --repo "$TARGET_REPO" \
+            --clobber
+      
+          echo "========================================"
+          echo "🎉 RELEASE SELESAI"
+          echo "========================================"
           
       - name: Archive Build Log
         if: always()
