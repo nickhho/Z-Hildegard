@@ -210,7 +210,7 @@ jobs:
           DATE=$(date +"%Y%m%d")
           # Tag unik berdasarkan nomor run agar semua matrix masuk ke satu halaman release
           RELEASE_TAG="Zixine-GKI-Run-${{ github.run_number }}"
-          ZIP_NAME="RE-GKI-zixine-Elysium-inline-${DATE}.zip"
+          ZIP_NAME="Z-Aylius-V1-${DATE}.zip"
           
           git clone -q --depth=1 "https://github.com/zixine/anykernel" -b main anykernel
           IMG=$(find gki/out -name "Image" -type f | head -n 1)
@@ -223,7 +223,7 @@ jobs:
           zip -r9 "../$ZIP_NAME" * -x .git .gitignore README.md
           cd ..
           
-          TARGET_REPO="zixine/Kernel-GKI-12-5.10-release"
+          TARGET_REPO="nickhho/Z-Hildegard"
           
           echo "🚀 Mengunggah $ZIP_NAME ke $TARGET_REPO..."
           gh release create "$RELEASE_TAG" --repo "$TARGET_REPO" --title "ZixineSu add Build ${DATE}" --notes "p." --prerelease=false 2>/dev/null || true
