@@ -6,7 +6,7 @@ on:
       kernel_name:
         description: 'Nama Kernel (Akan menjadi nama final, misal: Zixine-V1)'
         required: true
-        default: 'Z-Ayliud-V1'
+        default: 'Z-Aylius-V1'
         type: string
 
 permissions:
@@ -68,33 +68,12 @@ jobs:
           git fetch -j12 rama
           git checkout -b update-android12-5.10-staging rama/android12-5.10-staging
           rm -rf drivers/staging/kernelsu
-          
-      - name: Apply Infinix GT 20 Pro Camera Fix
-        working-directory: gki/common
-        run: |
-          echo "📸 Applying Infinix GT 20 Pro Camera Fix..."
-          curl -L "https://github.com/ramabondanp/android_kernel_common-5.10/commit/4fe04b60009e.patch" -o infinix_cam.patch
-          patch -p1 < infinix_cam.patch || echo "Patch already applied."
-
-      - name: Apply Snapdragon Performance Patch
-        working-directory: gki/common
-        run: |
-          echo "🚀 [Snapdragon] Applying performance patch..."
-          TARGET="drivers/cpufreq/qcom-cpufreq-hw.c"
-          SRC_URL="https://raw.githubusercontent.com/Pzqqt/android_kernel_xiaomi_marble/refs/heads/melt-rebase/drivers/cpufreq/qcom-cpufreq-hw.c"
-          if [ -f "$TARGET" ]; then
-            curl -L "$SRC_URL" -o /tmp/qcom-cpufreq-hw.c
-            if grep -q "qcom_cpufreq_hw" /tmp/qcom-cpufreq-hw.c; then
-              cp /tmp/qcom-cpufreq-hw.c "$TARGET"
-              echo "✅ Patch Qualcomm CPUFreq HW applied."
-            fi
-          fi
 
       - name: Tweak build config
         run: |
           sed -i '2d' gki/common/build.config.gki
 
-      - name: Setup KernelSU-Next & SUSFS Hook
+      - name: Setup MamboSU
         working-directory: gki/common
         run: |
           echo "🧩 Setup MamboSU"
@@ -226,7 +205,7 @@ jobs:
       - name: Packaging & Release (Combined)
         if: success()
         env:
-          GH_TOKEN: ${{ secrets.GH_PAT }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           DATE=$(date +"%Y%m%d")
           # Tag unik berdasarkan nomor run agar semua matrix masuk ke satu halaman release
@@ -249,7 +228,7 @@ jobs:
           echo "🚀 Mengunggah $ZIP_NAME ke $TARGET_REPO..."
           gh release create "$RELEASE_TAG" --repo "$TARGET_REPO" --title "ZixineSu add Build ${DATE}" --notes "p." --prerelease=false 2>/dev/null || true
           gh release upload "$RELEASE_TAG" "$ZIP_NAME" --repo "$TARGET_REPO" --clobber
-
+          
       - name: Archive Build Log
         if: always()
         uses: actions/upload-artifact@v4
